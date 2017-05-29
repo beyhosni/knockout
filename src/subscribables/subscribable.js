@@ -92,7 +92,8 @@ var ko_subscribable_fn = {
 
     limit: function(limitFunction) {
         var self = this, selfIsObservable = ko.isObservable(self),
-            ignoreBeforeChange, notifyNextChange, previousValue, pendingValue, beforeChange = 'beforeChange';
+            notifyNextChange, previousValue, pendingValue, didUpdate,
+            beforeChange = 'beforeChange';
 
         if (!self._origNotifySubscribers) {
             self._origNotifySubscribers = self["notifySubscribers"];
@@ -100,32 +101,38 @@ var ko_subscribable_fn = {
         }
 
         var finish = limitFunction(function() {
-            self._notificationIsPending = false;
-
             // If an observable provided a reference to itself, access it to get the latest value.
             // This allows computed observables to delay calculating their value until needed.
             if (selfIsObservable && pendingValue === self) {
                 pendingValue = self._evalIfChanged ? self._evalIfChanged() : self();
             }
-            var shouldNotify = notifyNextChange || self.isDifferent(previousValue, pendingValue);
+            var shouldNotify = notifyNextChange || (didUpdate && self.isDifferent(previousValue, pendingValue));
 
-            notifyNextChange = ignoreBeforeChange = false;
+            self._notificationIsPending = didUpdate = notifyNextChange = false;
 
             if (shouldNotify) {
                 self._origNotifySubscribers(previousValue = pendingValue);
             }
         });
 
-        self._limitChange = function(value) {
+        self._limitChange = function(value, isDirty) {
             self._changeSubscriptions = self._subscriptions[defaultEvent].slice(0);
-            self._notificationIsPending = ignoreBeforeChange = true;
+            self._notificationIsPending = true;
             pendingValue = value;
+            if (!isDirty) {
+                didUpdate = true;
+            }
             finish();
         };
         self._limitBeforeChange = function(value) {
-            if (!ignoreBeforeChange) {
+            if (!self._notificationIsPending) {
                 previousValue = value;
                 self._origNotifySubscribers(value, beforeChange);
+            }
+        };
+        self._recordUpdate = function() {
+            if (self._notificationIsPending) {
+                didUpdate = true;
             }
         };
         self._notifyNextChangeIfValueIsDifferent = function() {
